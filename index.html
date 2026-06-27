@@ -957,7 +957,7 @@ function renderMore(){
     </div>
 
     <button class="btn sec" style="margin-top:8px" onclick="logout()">${ico('logout')} Sair (${CURRENT.u})</button>
-    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v1 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
+    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v2 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
   </div>`;
 }
 
@@ -1204,6 +1204,8 @@ bootLogin();
 window.addEventListener('load',()=>{const tb=$('#theme-btn');if(tb)tb.innerHTML=ico(document.body.getAttribute('data-theme')==='dark'?'moon':'sun');});
 /* Service worker: só ativa quando publicado (http/https), ignorado ao abrir o arquivo local */
 if('serviceWorker' in navigator && location.protocol.startsWith('http')){
+  let refreshing=false;
+  navigator.serviceWorker.addEventListener('controllerchange',()=>{if(refreshing)return;refreshing=true;location.reload();});
   window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});
 }
 </script>
