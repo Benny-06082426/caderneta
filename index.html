@@ -629,6 +629,7 @@ function openLoanDetail(id){
     ${l.status!=='quitado'?`<div class="det-actions">
       <button class="btn" onclick="openPayment('${l.id}')">${ico('pay')} Registrar pagamento</button>
     </div>
+    <button class="btn sec" style="margin-bottom:8px" onclick="askWhatsapp(DB.loans.find(x=>x.id==='${l.id}'),'concessao')">${ico('wpp')} Enviar dados do empréstimo</button>
     <div class="det-actions" style="margin-top:0">
       <button class="btn sec sm" onclick="askWhatsapp(DB.loans.find(x=>x.id==='${l.id}'),'lembrete')">${ico('wpp')} Lembrete</button>
       <button class="btn sec sm" onclick="askWhatsapp(DB.loans.find(x=>x.id==='${l.id}'),'atraso')">${ico('wpp')} Cobrança</button>
@@ -957,7 +958,7 @@ function renderMore(){
     </div>
 
     <button class="btn sec" style="margin-top:8px" onclick="logout()">${ico('logout')} Sair (${CURRENT.u})</button>
-    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v3 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
+    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v4 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
   </div>`;
 }
 
