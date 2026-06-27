@@ -831,7 +831,7 @@ function openClientDetail(id){
     </div>
     ${deve?`<div class="calc-box"><div class="calc-line total"><span class="k">Deve atualmente</span><span class="v num">${money(deve)}</span></div></div>`:''}
     <div class="det-actions">
-      ${tel?`<button class="btn sec sm" onclick="window.open('https://wa.me/55${tel}','_blank')">${ico('wpp')} WhatsApp</button>`:''}
+      ${tel?`<button class="btn sec sm" onclick="(function(){var a=document.createElement('a');a.href='https://wa.me/'+waNumber('${tel}');a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();})()">${ico('wpp')} WhatsApp</button>`:''}
       <button class="btn sec sm" onclick="openClientForm('${id}')">${ico('edit')} Editar</button>
     </div>
     <button class="btn" onclick="openLoanFormFor('${id}')">${ico('plus')} Novo empréstimo</button>
@@ -957,7 +957,7 @@ function renderMore(){
     </div>
 
     <button class="btn sec" style="margin-top:8px" onclick="logout()">${ico('logout')} Sair (${CURRENT.u})</button>
-    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v2 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
+    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v3 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
   </div>`;
 }
 
@@ -1050,15 +1050,28 @@ function downloadReceiptImg(){const a=document.createElement('a');a.href=RECEIPT
 function printReceipt(){document.getElementById('print-area').innerHTML='<img src="'+RECEIPT.dataURL+'" style="max-width:100%">';document.body.classList.add('printing');try{window.print();}catch(e){toast('Use o menu do navegador para imprimir');}setTimeout(()=>{document.body.classList.remove('printing');document.getElementById('print-area').innerHTML='';},500);}
 function sendReceiptText(){const r=RECEIPT;closeSheet();setTimeout(()=>askWhatsapp(r.l,'recibo',r.h,true),250);}
 function sendLastReceipt(loanId){openReceipt(loanId);}
+function waNumber(tel){let d=(tel||'').replace(/\D/g,'');if(!d)return '';if(!d.startsWith('55')&&d.length<=11)d='55'+d;return d;}
+function openWa(loanId){
+  const l=DB.loans.find(x=>x.id===loanId);const c=clientById(l.clientId);
+  const tel=$('#wpp-tel')?$('#wpp-tel').value:'';const n=waNumber(tel);const txt=$('#wpp-msg').value;
+  if(tel && c && (c.tel||'')!==tel){c.tel=tel;save();} // salva/atualiza o número no cliente
+  const url=n?`https://wa.me/${n}?text=${encodeURIComponent(txt)}`:`https://wa.me/?text=${encodeURIComponent(txt)}`;
+  const a=document.createElement('a');a.href=url;a.target='_blank';a.rel='noopener';document.body.appendChild(a);a.click();a.remove();
+}
+async function shareWa(){const txt=$('#wpp-msg').value;try{if(navigator.share){await navigator.share({text:txt});}else{navigator.clipboard.writeText(txt);toast('Copiado');}}catch(e){}}
 function askWhatsapp(l,tipo,h,noPix){
   const c=clientById(l.clientId);if(!c){return;}
   const tpl=tipo==='concessao'?DB.config.msgConcessao:tipo==='lembrete'?DB.config.msgLembrete:tipo==='recibo'?DB.config.msgRecibo:DB.config.msgAtraso;
-  const msg=fillMsg(tpl,l,h,noPix);const tel=(c.tel||'').replace(/\D/g,'');
+  const msg=fillMsg(tpl,l,h,noPix);
   sheet('Mensagem WhatsApp',`<div class="form-grid">
-    <div><label class="si-l">Para ${c.nome}</label><textarea class="input" id="wpp-msg" style="min-height:160px">${msg}</textarea></div>
-    ${tel?`<button class="btn" onclick="window.open('https://wa.me/55${tel}?text='+encodeURIComponent($('#wpp-msg').value),'_blank')">${ico('wpp')} Abrir no WhatsApp</button>`
-      :`<div class="help">⚠️ Cliente sem telefone cadastrado.</div>`}
-    <button class="btn sec" onclick="navigator.clipboard.writeText($('#wpp-msg').value);toast('Copiado')">Copiar texto</button>
+    <div><label class="si-l">Telefone (com DDD)</label><input class="input num" id="wpp-tel" inputmode="tel" value="${c.tel||''}" placeholder="(91) 99999-9999"><div class="help">Funciona mesmo se o número não estiver salvo na sua agenda.</div></div>
+    <div><label class="si-l">Mensagem para ${c.nome}</label><textarea class="input" id="wpp-msg" style="min-height:150px">${msg}</textarea></div>
+    <button class="btn" onclick="openWa('${l.id}')">${ico('wpp')} Abrir no WhatsApp</button>
+    <div class="det-actions" style="margin-top:0">
+      <button class="btn sec sm" onclick="shareWa()">Compartilhar</button>
+      <button class="btn sec sm" onclick="navigator.clipboard.writeText($('#wpp-msg').value);toast('Copiado')">Copiar texto</button>
+    </div>
+    <div class="help">Sem o número? Use "Compartilhar" e escolha o contato no WhatsApp.</div>
   </div>`);
 }
 
