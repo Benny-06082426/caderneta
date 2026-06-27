@@ -352,12 +352,14 @@ const DEFAULT={
   config:{ juros:20, alertaDias:5, credor:'', logo:'', pix:'', pixNome:'',
     msgConcessao:'Olá {cliente}! Confirmo o empréstimo de {valor} em {data_emp}. Vencimento: {data_venc}. Juros do mês: {juros}. Para quitar: {total}.\n\nChave PIX para pagamento: {pix}\nQualquer dúvida, estou à disposição.',
     msgLembrete:'Olá {cliente}! Lembrete: seu vencimento é em {data_venc}. Valor dos juros: {juros}. Saldo devedor: {saldo}. Para quitar: {total}.\n\nChave PIX: {pix}',
-    msgAtraso:'Olá {cliente}! Consta atraso desde {data_venc} ({dias_atraso} dias). Saldo devedor: {saldo} + juros {juros}.\n\nPara regularizar, PIX: {pix}\nPor favor, entre em contato.'
+    msgAtraso:'Olá {cliente}! Consta atraso desde {data_venc} ({dias_atraso} dias). Saldo devedor: {saldo} + juros {juros}.\n\nPara regularizar, PIX: {pix}\nPor favor, entre em contato.',
+    msgRecibo:'Olá {cliente}! Confirmo o recebimento de {valor_pago} em {data_pgto}.\nJuros pagos: {juros_pago}\nAbatido do saldo: {principal_pago}\nNovo saldo devedor: {novo_saldo}\nPróximo vencimento: {data_venc}\n\nObrigada!'
   },
   session:null
 };
 let DB=load();
-(function migrate(){if(DB.config.pix===undefined)DB.config.pix='';if(DB.config.pixNome===undefined)DB.config.pixNome='';})();
+(function migrate(){if(DB.config.pix===undefined)DB.config.pix='';if(DB.config.pixNome===undefined)DB.config.pixNome='';
+  if(DB.config.msgRecibo===undefined)DB.config.msgRecibo='Olá {cliente}! Confirmo o recebimento de {valor_pago} em {data_pgto}.\nJuros pagos: {juros_pago}\nAbatido do saldo: {principal_pago}\nNovo saldo devedor: {novo_saldo}\nPróximo vencimento: {data_venc}\n\nObrigada!';})();
 let CURRENT=null; // usuário logado
 
 function load(){try{const r=JSON.parse(localStorage.getItem(KEY));if(r&&r.users)return r;}catch(e){}return JSON.parse(JSON.stringify(DEFAULT));}
@@ -633,7 +635,7 @@ function openLoanDetail(id){
     </div>`:`<div class="badge ok" style="display:block;text-align:center;padding:10px;margin:10px 0">✓ Empréstimo quitado</div>`}
 
     <div class="section-label" style="margin-top:18px">Histórico financeiro</div>
-    ${hist.length?`<div class="tl">${hist.map(h=>histItem(h,l.id)).join('')}</div>`:`<div class="help">Nenhum movimento ainda.</div>`}
+    ${hist.length?`<button class="btn sec sm" style="margin-bottom:10px" onclick="sendLastReceipt('${l.id}')">${ico('doc')} Comprovante do último pagamento</button><div class="tl">${hist.map(h=>histItem(h,l.id)).join('')}</div>`:`<div class="help">Nenhum movimento ainda.</div>`}
 
     <div class="det-actions" style="margin-top:18px">
       <button class="btn sec sm" onclick="openLoanEdit('${l.id}')">${ico('edit')} Editar</button>
@@ -726,6 +728,7 @@ function savePayment(id){
   l.historico=l.historico||[];l.historico.push(h);
   audit('pagamento',`${clientById(l.clientId).nome} · ${money(val)} (${tipo})`);save();
   closeSheet();go(TAB==='dash'?'dash':'loans');toast(l.status==='quitado'?'Empréstimo quitado! 🎉':'Pagamento registrado');
+  setTimeout(()=>openReceipt(l.id,h),350);
 }
 function delPayment(loanId,hId){
   confirmDialog('Excluir lançamento?','Esta ação remove o registro do histórico, mas não recalcula saldos anteriores automaticamente.',()=>{
@@ -938,7 +941,7 @@ function renderMore(){
         <input class="input" id="cfg-pixnome" value="${DB.config.pixNome||''}" placeholder="Nome do titular (opcional)" style="margin-top:8px" onchange="DB.config.pixNome=this.value.trim();save();toast('Salvo')">
         <div class="help">Entra automaticamente nas mensagens de WhatsApp.</div>
       </div>
-      <div class="set-item"><div><div class="si-l">Modelos de mensagem</div><div class="si-s">WhatsApp: concessão, lembrete, cobrança</div></div><button class="btn sm sec" onclick="openMsgConfig()">Editar</button></div>
+      <div class="set-item"><div><div class="si-l">Modelos de mensagem</div><div class="si-s">WhatsApp: concessão, lembrete, cobrança, recibo</div></div><button class="btn sm sec" onclick="openMsgConfig()">Editar</button></div>
     </div>
 
     <div class="section-label">Dados e segurança</div>
@@ -961,24 +964,96 @@ function renderMore(){
 /* ---- mensagens ---- */
 function openMsgConfig(){
   sheet('Modelos de mensagem',`<div class="form-grid">
-    <div class="help">Variáveis: {cliente} {valor} {saldo} {juros} {total} {data_emp} {data_venc} {dias_atraso} {pix}</div>
+    <div class="help">Gerais: {cliente} {valor} {saldo} {juros} {total} {data_emp} {data_venc} {dias_atraso} {pix}<br>Recibo: {valor_pago} {juros_pago} {principal_pago} {novo_saldo} {data_pgto}</div>
     <div><label class="si-l">Concessão do empréstimo</label><textarea class="input" id="m1" style="min-height:90px">${DB.config.msgConcessao}</textarea></div>
     <div><label class="si-l">Lembrete de vencimento</label><textarea class="input" id="m2" style="min-height:90px">${DB.config.msgLembrete}</textarea></div>
     <div><label class="si-l">Cobrança de atraso</label><textarea class="input" id="m3" style="min-height:90px">${DB.config.msgAtraso}</textarea></div>
-    <button class="btn" onclick="DB.config.msgConcessao=$('#m1').value;DB.config.msgLembrete=$('#m2').value;DB.config.msgAtraso=$('#m3').value;save();closeSheet();toast('Modelos salvos')">Salvar modelos</button>
+    <div><label class="si-l">Recibo de pagamento</label><textarea class="input" id="m4" style="min-height:110px">${DB.config.msgRecibo}</textarea></div>
+    <button class="btn" onclick="DB.config.msgConcessao=$('#m1').value;DB.config.msgLembrete=$('#m2').value;DB.config.msgAtraso=$('#m3').value;DB.config.msgRecibo=$('#m4').value;save();closeSheet();toast('Modelos salvos')">Salvar modelos</button>
   </div>`);
 }
-function fillMsg(tpl,l){const c=clientById(l.clientId)||{nome:''};const at=Math.max(0,-daysBetween(todayISO(),l.dataVencimento));
+function fillMsg(tpl,l,h){const c=clientById(l.clientId)||{nome:''};const at=Math.max(0,-daysBetween(todayISO(),l.dataVencimento));
   let out=tpl.replace(/{cliente}/g,c.nome).replace(/{valor}/g,money(l.valorOriginal)).replace(/{saldo}/g,money(l.saldo))
     .replace(/{juros}/g,money(loanInterest(l))).replace(/{total}/g,money(loanTotal(l)))
     .replace(/{data_emp}/g,dBR(l.dataEmprestimo)).replace(/{data_venc}/g,dBR(l.dataVencimento)).replace(/{dias_atraso}/g,at)
     .replace(/{pix}/g,DB.config.pix||'(não informada)');
-  if(DB.config.pix && !/\{pix\}/.test(tpl) && !out.includes(DB.config.pix)){out+=`\n\nChave PIX: ${DB.config.pix}`+(DB.config.pixNome?` (${DB.config.pixNome})`:'');}
+  if(h){out=out.replace(/{valor_pago}/g,money(h.valor)).replace(/{juros_pago}/g,money(h.jurosPago||0))
+    .replace(/{principal_pago}/g,money(h.principalPago||0)).replace(/{novo_saldo}/g,money(h.saldoAtual)).replace(/{data_pgto}/g,dBR(h.data));}
+  else{out=out.replace(/{valor_pago}/g,'').replace(/{juros_pago}/g,'').replace(/{principal_pago}/g,'').replace(/{novo_saldo}/g,money(l.saldo)).replace(/{data_pgto}/g,dBR(todayISO()));}
+  if(!noPix && DB.config.pix && !/\{pix\}/.test(tpl) && !out.includes(DB.config.pix)){out+=`\n\nChave PIX: ${DB.config.pix}`+(DB.config.pixNome?` (${DB.config.pixNome})`:'');}
   return out;}
-function askWhatsapp(l,tipo){
+
+/* ---- comprovante em imagem / PDF (sem PIX) ---- */
+let RECEIPT=null;
+function drawReceiptCanvas(l,h){
+  const c=clientById(l.clientId)||{nome:'—'};
+  const rows=[['Cliente',c.nome],['Data do pagamento',dBR(h.data)],['Valor recebido',money(h.valor)]];
+  if(h.jurosPago)rows.push(['Juros pagos',money(h.jurosPago)]);
+  if(h.principalPago)rows.push(['Abatido do principal',money(h.principalPago)]);
+  rows.push(['Saldo anterior',money(h.saldoAnterior)]);
+  const quit=l.status==='quitado'&&h.saldoAtual<=0;
+  rows.push([quit?'Saldo devedor':'Novo saldo devedor',money(h.saldoAtual)]);
+  if(!quit)rows.push(['Próximo vencimento',dBR(l.dataVencimento)]);
+  const W=760,pad=52,headerH=150,rowH=62,footerH=96,SC=2;
+  const H=headerH+rows.length*rowH+footerH;
+  const cv=document.createElement('canvas');cv.width=W*SC;cv.height=H*SC;
+  const x=cv.getContext('2d');x.scale(SC,SC);
+  const F=(w,s)=>`${w} ${s}px -apple-system,Segoe UI,Roboto,Arial,sans-serif`;
+  x.fillStyle='#ffffff';x.fillRect(0,0,W,H);
+  // header
+  x.fillStyle='#147a4c';x.fillRect(0,0,W,headerH);
+  x.fillStyle='#eafff4';x.font=F(700,16);x.fillText('COMPROVANTE DE PAGAMENTO',pad,58);
+  x.fillStyle='#ffffff';x.font=F(800,34);x.fillText(DB.config.credor||'Controle+',pad,98);
+  x.fillStyle='#cdeedd';x.font=F(400,16);x.fillText('Emitido em '+dBR(todayISO()),pad,126);
+  if(quit){x.fillStyle='#eafff4';x.font=F(800,18);x.textAlign='right';x.fillText('✓ QUITADO',W-pad,98);x.textAlign='left';}
+  // rows
+  let y=headerH+46;
+  rows.forEach(([k,v],i)=>{
+    const hl=(k.indexOf('Novo saldo')===0)||(k==='Valor recebido');
+    x.fillStyle='#5b7065';x.font=F(400,18);x.textAlign='left';x.fillText(k,pad,y);
+    x.fillStyle=hl?'#147a4c':'#16241c';x.font=F(hl?800:700,hl?22:20);x.textAlign='right';x.fillText(v,W-pad,y);
+    x.textAlign='left';x.strokeStyle='#e6ede8';x.lineWidth=1;x.beginPath();x.moveTo(pad,y+22);x.lineTo(W-pad,y+22);x.stroke();
+    y+=rowH;
+  });
+  // footer
+  x.fillStyle='#8aa093';x.font=F(400,14);
+  x.fillText('Documento gerado automaticamente pelo Controle+',pad,H-40);
+  return cv;
+}
+function openReceipt(loanId,h){
+  const l=DB.loans.find(x=>x.id===loanId);if(!l)return;
+  if(!h){if(!(l.historico||[]).length){toast('Sem pagamentos');return;}h=l.historico.slice().sort((a,b)=>b.ts-a.ts)[0];}
+  const dataURL=drawReceiptCanvas(l,h).toDataURL('image/png');
+  RECEIPT={l,h,dataURL,loanId};
+  const c=clientById(l.clientId);const tel=(c&&c.tel||'').replace(/\D/g,'');
+  sheet('Comprovante',`
+    <img src="${dataURL}" style="width:100%;border-radius:12px;border:1px solid var(--line)">
+    <button class="btn" style="margin-top:14px" onclick="shareReceiptImg()">${ico('wpp')} Compartilhar imagem</button>
+    <div class="det-actions" style="margin-top:8px">
+      <button class="btn sec sm" onclick="downloadReceiptImg()">${ico('doc')} Baixar imagem</button>
+      <button class="btn sec sm" onclick="printReceipt()">${ico('doc')} Salvar PDF</button>
+    </div>
+    <button class="btn ghost sm" style="margin-top:6px;color:var(--ink2)" onclick="sendReceiptText()">Enviar como texto (sem PIX)</button>
+    ${!tel?'<div class="help" style="margin-top:6px">Cliente sem telefone — use compartilhar ou baixar.</div>':''}
+  `);
+}
+async function shareReceiptImg(){
+  try{
+    const blob=await (await fetch(RECEIPT.dataURL)).blob();
+    const file=new File([blob],'comprovante.png',{type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:'Comprovante de pagamento'});
+    }else{downloadReceiptImg();toast('Compartilhar indisponível — imagem baixada');}
+  }catch(e){}
+}
+function downloadReceiptImg(){const a=document.createElement('a');a.href=RECEIPT.dataURL;a.download='comprovante_'+todayISO()+'.png';document.body.appendChild(a);a.click();a.remove();toast('Imagem salva');}
+function printReceipt(){document.getElementById('print-area').innerHTML='<img src="'+RECEIPT.dataURL+'" style="max-width:100%">';document.body.classList.add('printing');try{window.print();}catch(e){toast('Use o menu do navegador para imprimir');}setTimeout(()=>{document.body.classList.remove('printing');document.getElementById('print-area').innerHTML='';},500);}
+function sendReceiptText(){const r=RECEIPT;closeSheet();setTimeout(()=>askWhatsapp(r.l,'recibo',r.h,true),250);}
+function sendLastReceipt(loanId){openReceipt(loanId);}
+function askWhatsapp(l,tipo,h,noPix){
   const c=clientById(l.clientId);if(!c){return;}
-  const tpl=tipo==='concessao'?DB.config.msgConcessao:tipo==='lembrete'?DB.config.msgLembrete:DB.config.msgAtraso;
-  const msg=fillMsg(tpl,l);const tel=(c.tel||'').replace(/\D/g,'');
+  const tpl=tipo==='concessao'?DB.config.msgConcessao:tipo==='lembrete'?DB.config.msgLembrete:tipo==='recibo'?DB.config.msgRecibo:DB.config.msgAtraso;
+  const msg=fillMsg(tpl,l,h,noPix);const tel=(c.tel||'').replace(/\D/g,'');
   sheet('Mensagem WhatsApp',`<div class="form-grid">
     <div><label class="si-l">Para ${c.nome}</label><textarea class="input" id="wpp-msg" style="min-height:160px">${msg}</textarea></div>
     ${tel?`<button class="btn" onclick="window.open('https://wa.me/55${tel}?text='+encodeURIComponent($('#wpp-msg').value),'_blank')">${ico('wpp')} Abrir no WhatsApp</button>`
