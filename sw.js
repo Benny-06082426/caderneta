@@ -1,5 +1,5 @@
 /* Controle+ · service worker */
-const CACHE = 'controle-mais-v4';
+const CACHE = 'controle-mais-v6';
 const ASSETS = [
   './','./index.html','./manifest.json',
   './icon-192.png','./icon-512.png','./apple-touch-icon.png','./favicon-32.png'

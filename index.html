@@ -311,6 +311,15 @@ textarea.input{resize:vertical;min-height:64px}
 <div id="print-area"></div>
 
 <script>
+/* ===== Diagnóstico: mostra erros silenciosos na tela ===== */
+window.addEventListener('error',function(e){
+  try{var m=(e&&e.message)?e.message:'erro desconhecido';
+    var d=document.getElementById('errbanner')||document.createElement('div');d.id='errbanner';
+    d.style.cssText='position:fixed;left:8px;right:8px;bottom:8px;z-index:99999;background:#8e2f2f;color:#fff;padding:12px 14px;border-radius:12px;font:600 13px -apple-system,Segoe UI,Roboto,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.45)';
+    d.textContent='⚠️ '+m+'  (toque para fechar)';d.onclick=function(){d.remove();};
+    if(!d.parentNode)document.body.appendChild(d);
+  }catch(_){}
+});
 /* ============================================================
    ÍCONES
    ============================================================ */
@@ -609,8 +618,7 @@ function saveLoan(){
     dataEmprestimo:$('#f-emp').value,dataVencimento:$('#f-ven').value,obs:$('#f-obs').value.trim(),
     status:'ativo',criadoPor:CURRENT.u,criadoEm:Date.now(),historico:[]};
   DB.loans.push(l);audit('empréstimo_criado',`${clientById(clientId).nome} · ${money(val)}`);save();
-  closeSheet();go('loans');toast('Empréstimo registrado');
-  setTimeout(()=>askWhatsapp(l,'concessao'),350);
+  go('loans');askWhatsapp(l,'concessao');toast('Empréstimo registrado');
 }
 
 /* ---- detalhe empréstimo ---- */
@@ -728,8 +736,7 @@ function savePayment(id){
     saldoAnterior,saldoAtual:l.saldo,jurosAnterior,novoJuros:loanInterest(l),user:CURRENT.u,comprovante:payReceipt};
   l.historico=l.historico||[];l.historico.push(h);
   audit('pagamento',`${clientById(l.clientId).nome} · ${money(val)} (${tipo})`);save();
-  closeSheet();go(TAB==='dash'?'dash':'loans');toast(l.status==='quitado'?'Empréstimo quitado! 🎉':'Pagamento registrado');
-  setTimeout(()=>openReceipt(l.id,h),350);
+  go(TAB==='dash'?'dash':'loans');openReceipt(l.id,h);toast(l.status==='quitado'?'Empréstimo quitado! 🎉':'Pagamento registrado');
 }
 function delPayment(loanId,hId){
   confirmDialog('Excluir lançamento?','Esta ação remove o registro do histórico, mas não recalcula saldos anteriores automaticamente.',()=>{
@@ -958,7 +965,7 @@ function renderMore(){
     </div>
 
     <button class="btn sec" style="margin-top:8px" onclick="logout()">${ico('logout')} Sair (${CURRENT.u})</button>
-    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v4 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
+    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v6 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
   </div>`;
 }
 
@@ -973,7 +980,8 @@ function openMsgConfig(){
     <button class="btn" onclick="DB.config.msgConcessao=$('#m1').value;DB.config.msgLembrete=$('#m2').value;DB.config.msgAtraso=$('#m3').value;DB.config.msgRecibo=$('#m4').value;save();closeSheet();toast('Modelos salvos')">Salvar modelos</button>
   </div>`);
 }
-function fillMsg(tpl,l,h){const c=clientById(l.clientId)||{nome:''};const at=Math.max(0,-daysBetween(todayISO(),l.dataVencimento));
+function fillMsg(tpl,l,h,noPix){const c=clientById(l.clientId)||{nome:''};const at=Math.max(0,-daysBetween(todayISO(),l.dataVencimento));
+  tpl=tpl||'';
   let out=tpl.replace(/{cliente}/g,c.nome).replace(/{valor}/g,money(l.valorOriginal)).replace(/{saldo}/g,money(l.saldo))
     .replace(/{juros}/g,money(loanInterest(l))).replace(/{total}/g,money(loanTotal(l)))
     .replace(/{data_emp}/g,dBR(l.dataEmprestimo)).replace(/{data_venc}/g,dBR(l.dataVencimento)).replace(/{dias_atraso}/g,at)
