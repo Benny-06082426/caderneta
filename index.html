@@ -375,7 +375,7 @@ let DB=load();
   if(DB.config.msgRecibo===undefined)DB.config.msgRecibo='Olá {cliente}! Confirmo o recebimento de {valor_pago} em {data_pgto}.\nJuros pagos: {juros_pago}\nAbatido do saldo: {principal_pago}\nNovo saldo devedor: {novo_saldo}\nPróximo vencimento: {data_venc}\n\nObrigada!';
   if(DB.config.meuWhats===undefined)DB.config.meuWhats='';
   if(DB.config.msgCapital===undefined)DB.config.msgCapital='Olá {cliente}! O juros de {juros_cap} referente ao vencimento {venc_ciclo} não foi pago e, conforme combinado, passou a compor o saldo devedor.\nSaldo atualizado: {novo_saldo}\nNovo juros do mês: {novo_juros}\nPróximo vencimento: {data_venc}\n\nQualquer dúvida, estou à disposição.';
-  DB.loans.forEach(l=>{if(l.composto===undefined)l.composto=true;});})();
+  DB.loans.forEach(l=>{if(l.composto===undefined)l.composto=true;if(l.jurosPendente===undefined)l.jurosPendente=0;});})();
 let CURRENT=null; // usuário logado
 
 function load(){try{const r=JSON.parse(localStorage.getItem(KEY));if(r&&r.users)return r;}catch(e){}return JSON.parse(JSON.stringify(DEFAULT));}
@@ -399,6 +399,8 @@ function toast(msg){const r=$('#toast-root');r.innerHTML=`<div class="toast">${m
 
 /* status helpers */
 function loanInterest(l){return Math.round(l.saldo*(l.juros/100)*100)/100;}
+function loanPend(l){return Math.round((l.jurosPendente||0)*100)/100;}
+function jurosDevido(l){return Math.round((loanInterest(l)+loanPend(l))*100)/100;} // juros do mês + pendente acumulado (não rende)
 /* ===== Juros compostos (juros sobre juros) ===== */
 function pendingCapCycles(l){
   if(!l.composto || l.status==='quitado')return 0;
@@ -428,7 +430,7 @@ function doCapitalize(loanId){
   closeSheet();toast('Juros capitalizado');updateAlertBadge();
   openCapNotice(l.id,{n,totalCap,saldoInicial,saldoFinal:l.saldo,novoJuros:loanInterest(l),vencInicial,dataVenc:l.dataVencimento});
 }
-function loanTotal(l){return l.saldo+loanInterest(l);}
+function loanTotal(l){return l.saldo+jurosDevido(l);}
 function loanStatus(l){
   if(l.status==='quitado')return {k:'quitado',cls:'mut',txt:'Quitado'};
   const dd=daysBetween(todayISO(),l.dataVencimento);
@@ -669,6 +671,7 @@ function openLoanDetail(id){
       <div class="calc-line"><span class="k">Valor original</span><span class="v num">${money(l.valorOriginal)}</span></div>
       <div class="calc-line"><span class="k">Saldo devedor</span><span class="v num">${money(l.saldo)}</span></div>
       <div class="calc-line"><span class="k">Juros do mês (${l.juros}%)</span><span class="v num">${money(loanInterest(l))}</span></div>
+      ${loanPend(l)>0?`<div class="calc-line"><span class="k">Juros pendente</span><span class="v num" style="color:var(--warn)">${money(loanPend(l))}</span></div>`:''}
       <div class="calc-line"><span class="k">Vencimento</span><span class="v">${dBR(l.dataVencimento)} <span class="badge ${st.cls}" style="margin-left:6px">${st.txt}</span></span></div>
       <div class="calc-line total"><span class="k">Total para quitar</span><span class="v num">${money(loanTotal(l))}</span></div>
     </div>
@@ -703,11 +706,11 @@ function histItem(h,loanId){
       <div class="ts">Juros de <b class="num">${money(h.jurosCapitalizado)}</b> (venc. ${dBR(h.vencCiclo)}) somado ao saldo<br>Saldo ${money(h.saldoAnterior)} → <b class="num">${money(h.saldoAtual)}</b> · por ${h.user}</div></div>`;
   }
   const cls=h.tipo==='juros'?'j':h.tipo==='quitacao'?'q':'';
-  const tt=h.tipo==='juros'?'Pagamento de juros':h.tipo==='quitacao'?'Quitação total':h.tipo==='principal'?'Abatimento de principal':'Juros + principal';
+  const tt=h.tipo==='juros'?'Pagamento de juros':h.tipo==='parcial'?'Juros parcial':h.tipo==='quitacao'?'Quitação total':h.tipo==='principal'?'Abatimento de principal':'Juros + principal';
   return `<div class="tl-item ${cls}">
     <div class="th"><span class="tt">${tt}</span><span class="td">${dBR(h.data)}</span></div>
     <div class="ts">
-      Recebido <b class="num">${money(h.valor)}</b>${h.jurosPago?` · juros ${money(h.jurosPago)}`:''}${h.principalPago?` · principal ${money(h.principalPago)}`:''}<br>
+      Recebido <b class="num">${money(h.valor)}</b>${h.jurosPago?` · juros ${money(h.jurosPago)}`:''}${h.principalPago?` · principal ${money(h.principalPago)}`:''}${h.jurosPendenteNovo>0?` · pendente ${money(h.jurosPendenteNovo)}`:''}<br>
       Saldo ${money(h.saldoAnterior)} → <b class="num">${money(h.saldoAtual)}</b> · por ${h.user}
     </div>
     ${h.comprovante?`<img class="receipt" src="${h.comprovante}" onclick="viewImg('${h.comprovante}')">`:''}
@@ -719,21 +722,24 @@ function histItem(h,loanId){
 let payReceipt='';
 function openPayment(id){
   const l=DB.loans.find(x=>x.id===id);if(!l)return;payReceipt='';
-  const juros=loanInterest(l);
+  const jurosMes=loanInterest(l),pend=loanPend(l),jurosTot=jurosDevido(l);
   sheet('Registrar pagamento',`
     <div class="calc-box">
       <div class="calc-line"><span class="k">Saldo devedor</span><span class="v num">${money(l.saldo)}</span></div>
-      <div class="calc-line"><span class="k">Juros do período</span><span class="v num">${money(juros)}</span></div>
+      <div class="calc-line"><span class="k">Juros do mês</span><span class="v num">${money(jurosMes)}</span></div>
+      ${pend>0?`<div class="calc-line"><span class="k">Juros pendente (anterior)</span><span class="v num">${money(pend)}</span></div>
+      <div class="calc-line total"><span class="k">Total de juros</span><span class="v num">${money(jurosTot)}</span></div>`:''}
     </div>
     <label class="si-l" style="margin-top:6px">Tipo de pagamento</label>
     <div class="opt-list" id="pay-opts">
-      <div class="opt on" data-t="juros" onclick="selPay(this,'${id}')"><div class="rd"></div><div><div class="ot">Só os juros</div><div class="od">Saldo permanece. Renova o vencimento.</div></div></div>
+      <div class="opt on" data-t="juros" onclick="selPay(this,'${id}')"><div class="rd"></div><div><div class="ot">Só os juros</div><div class="od">Paga o juros todo. Saldo permanece. Renova o vencimento.</div></div></div>
+      <div class="opt" data-t="parcial" onclick="selPay(this,'${id}')"><div class="rd"></div><div><div class="ot">Juros parcial</div><div class="od">Paga parte do juros; o restante fica pendente p/ o próximo mês.</div></div></div>
       <div class="opt" data-t="misto" onclick="selPay(this,'${id}')"><div class="rd"></div><div><div class="ot">Juros + abater principal</div><div class="od">Quita os juros e o que sobrar reduz o saldo.</div></div></div>
       <div class="opt" data-t="principal" onclick="selPay(this,'${id}')"><div class="rd"></div><div><div class="ot">Somente abater principal</div><div class="od">Todo o valor reduz o saldo devedor.</div></div></div>
       <div class="opt" data-t="quitacao" onclick="selPay(this,'${id}')"><div class="rd"></div><div><div class="ot">Quitação total</div><div class="od">Saldo + juros. Encerra o empréstimo.</div></div></div>
     </div>
     <div class="form-grid two" style="margin-top:4px">
-      <div><label class="si-l">Valor recebido</label><input class="input num" id="p-val" inputmode="numeric" value="${fmtInput(juros)}" oninput="maskMoney(this)"></div>
+      <div><label class="si-l">Valor recebido</label><input class="input num" id="p-val" inputmode="numeric" value="${fmtInput(jurosTot)}" oninput="maskMoney(this)"></div>
       <div><label class="si-l">Data</label><input class="input" id="p-data" type="date" value="${todayISO()}"></div>
     </div>
     <div class="toggle-row" id="p-renew-row"><div><div class="si-l">Renovar vencimento (+1 mês)</div></div><div class="switch on" id="p-renew" onclick="this.classList.toggle('on')"></div></div>
@@ -747,42 +753,47 @@ function openPayment(id){
 }
 let payTipo='juros';
 function selPay(el,id){document.querySelectorAll('#pay-opts .opt').forEach(o=>o.classList.remove('on'));el.classList.add('on');payTipo=el.dataset.t;
-  const l=DB.loans.find(x=>x.id===id);const juros=loanInterest(l);
-  if(payTipo==='juros'){$('#p-val').value=fmtInput(juros);}
+  const l=DB.loans.find(x=>x.id===id);
+  if(payTipo==='juros'){$('#p-val').value=fmtInput(jurosDevido(l));}
   else if(payTipo==='quitacao'){$('#p-val').value=fmtInput(loanTotal(l));}
+  else if(payTipo==='parcial'){$('#p-val').value='';setTimeout(()=>{const e=$('#p-val');if(e)e.focus();},50);}
   $('#p-renew-row').style.display=payTipo==='quitacao'?'none':'flex';
   updatePayPreview(id);
 }
+function payCalc(l,val){ // retorna {jurosPago,principalPago,novoSaldo,novoPend}
+  const jurosMes=loanInterest(l),pend=loanPend(l),jurosTot=jurosMes+pend;
+  let jurosPago=0,principalPago=0,novoSaldo=l.saldo,novoPend=pend;
+  if(payTipo==='juros'){jurosPago=Math.min(val,jurosTot);novoPend=Math.max(0,Math.round((jurosTot-jurosPago)*100)/100);}
+  else if(payTipo==='parcial'){jurosPago=val;novoPend=Math.max(0,Math.round((jurosTot-val)*100)/100);}
+  else if(payTipo==='misto'){jurosPago=Math.min(val,jurosTot);novoPend=Math.max(0,Math.round((jurosTot-jurosPago)*100)/100);principalPago=Math.max(0,Math.round((val-jurosTot)*100)/100);novoSaldo=Math.max(0,Math.round((l.saldo-principalPago)*100)/100);}
+  else if(payTipo==='principal'){principalPago=val;novoSaldo=Math.max(0,Math.round((l.saldo-val)*100)/100);}
+  else if(payTipo==='quitacao'){jurosPago=jurosTot;principalPago=l.saldo;novoSaldo=0;novoPend=0;}
+  return {jurosPago,principalPago,novoSaldo,novoPend};
+}
 function updatePayPreview(id){
-  const l=DB.loans.find(x=>x.id===id);const juros=loanInterest(l);const val=parseNum($('#p-val').value);
-  let jurosPago=0,principalPago=0,novoSaldo=l.saldo;
-  if(payTipo==='juros'){jurosPago=val;}
-  else if(payTipo==='misto'){jurosPago=Math.min(val,juros);principalPago=Math.max(0,val-juros);novoSaldo=Math.max(0,l.saldo-principalPago);}
-  else if(payTipo==='principal'){principalPago=val;novoSaldo=Math.max(0,l.saldo-val);}
-  else if(payTipo==='quitacao'){jurosPago=juros;principalPago=l.saldo;novoSaldo=0;}
-  const novoJuros=Math.round(novoSaldo*(l.juros/100)*100)/100;
+  const l=DB.loans.find(x=>x.id===id);const val=parseNum($('#p-val').value);
+  const r=payCalc(l,val);
+  const proxJuros=Math.round(r.novoSaldo*(l.juros/100)*100)/100 + r.novoPend; // juros do mês + pendente que fica
   $('#p-preview').innerHTML=`
-    ${jurosPago?`<div class="calc-line"><span class="k">→ Juros pagos</span><span class="v num">${money(jurosPago)}</span></div>`:''}
-    ${principalPago?`<div class="calc-line"><span class="k">→ Abatido do principal</span><span class="v num">${money(principalPago)}</span></div>`:''}
-    <div class="calc-line"><span class="k">Novo saldo</span><span class="v num">${money(novoSaldo)}</span></div>
-    <div class="calc-line total"><span class="k">${novoSaldo>0?'Próximos juros':'Empréstimo encerrado'}</span><span class="v num">${novoSaldo>0?money(novoJuros):'✓'}</span></div>`;
+    ${r.jurosPago?`<div class="calc-line"><span class="k">→ Juros pagos</span><span class="v num">${money(r.jurosPago)}</span></div>`:''}
+    ${r.principalPago?`<div class="calc-line"><span class="k">→ Abatido do principal</span><span class="v num">${money(r.principalPago)}</span></div>`:''}
+    ${r.novoPend>0?`<div class="calc-line"><span class="k">→ Juros pendente (fica p/ próximo mês)</span><span class="v num" style="color:var(--warn)">${money(r.novoPend)}</span></div>`:''}
+    <div class="calc-line"><span class="k">Novo saldo</span><span class="v num">${money(r.novoSaldo)}</span></div>
+    <div class="calc-line total"><span class="k">${r.novoSaldo>0?'Próximos juros':'Empréstimo encerrado'}</span><span class="v num">${r.novoSaldo>0?money(proxJuros):'✓'}</span></div>`;
 }
 function loadReceipt(inp){const f=inp.files[0];if(!f)return;compressImg(f,1000,r=>{payReceipt=r;$('#p-rec-prev').innerHTML=`<img class="receipt" src="${r}" style="max-width:140px;margin-top:8px">`;});}
 function savePayment(id){
-  const l=DB.loans.find(x=>x.id===id);const juros=loanInterest(l);const val=parseNum($('#p-val').value);
+  const l=DB.loans.find(x=>x.id===id);const val=parseNum($('#p-val').value);
   if(val<=0){toast('Informe o valor');return;}
-  let jurosPago=0,principalPago=0,novoSaldo=l.saldo,tipo=payTipo;
-  if(payTipo==='juros'){jurosPago=val;}
-  else if(payTipo==='misto'){jurosPago=Math.min(val,juros);principalPago=Math.max(0,val-juros);novoSaldo=Math.max(0,l.saldo-principalPago);}
-  else if(payTipo==='principal'){principalPago=val;novoSaldo=Math.max(0,l.saldo-val);}
-  else if(payTipo==='quitacao'){jurosPago=juros;principalPago=l.saldo;novoSaldo=0;}
-  const saldoAnterior=l.saldo,jurosAnterior=juros;
-  l.saldo=Math.round(novoSaldo*100)/100;
+  const tipo=payTipo;const saldoAnterior=l.saldo,jurosAnterior=jurosDevido(l),pendAnterior=loanPend(l);
+  const r=payCalc(l,val);
+  l.saldo=Math.round(r.novoSaldo*100)/100;
+  l.jurosPendente=r.novoPend;
   const renew=$('#p-renew')&&$('#p-renew').classList.contains('on');
   if(payTipo!=='quitacao'&&renew&&l.saldo>0)l.dataVencimento=addMonth(l.dataVencimento);
-  if(l.saldo<=0){l.status='quitado';}
-  const h={id:uid(),ts:Date.now(),data:$('#p-data').value,valor:val,tipo,jurosPago,principalPago,
-    saldoAnterior,saldoAtual:l.saldo,jurosAnterior,novoJuros:loanInterest(l),user:CURRENT.u,comprovante:payReceipt};
+  if(l.saldo<=0){l.status='quitado';l.jurosPendente=0;}
+  const h={id:uid(),ts:Date.now(),data:$('#p-data').value,valor:val,tipo,jurosPago:r.jurosPago,principalPago:r.principalPago,
+    jurosPendenteNovo:r.novoPend,saldoAnterior,saldoAtual:l.saldo,jurosAnterior,novoJuros:loanInterest(l),user:CURRENT.u,comprovante:payReceipt};
   l.historico=l.historico||[];l.historico.push(h);
   audit('pagamento',`${clientById(l.clientId).nome} · ${money(val)} (${tipo})`);save();
   go(TAB==='dash'?'dash':'loans');openReceipt(l.id,h);toast(l.status==='quitado'?'Empréstimo quitado! 🎉':'Pagamento registrado');
@@ -1090,14 +1101,14 @@ function renderMore(){
     </div>
 
     <button class="btn sec" style="margin-top:8px" onclick="logout()">${ico('logout')} Sair (${CURRENT.u})</button>
-    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v9 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
+    <div class="help" style="text-align:center;margin-top:16px">Controle+ · v10 · ${DB.clients.length} clientes · ${DB.loans.length} empréstimos</div>
   </div>`;
 }
 
 /* ---- mensagens ---- */
 function openMsgConfig(){
   sheet('Modelos de mensagem',`<div class="form-grid">
-    <div class="help">Gerais: {cliente} {valor} {saldo} {juros} {total} {data_emp} {data_venc} {dias_atraso} {pix}<br>Recibo: {valor_pago} {juros_pago} {principal_pago} {novo_saldo} {data_pgto}<br>Capitalização: {juros_cap} {venc_ciclo} {novo_saldo} {novo_juros}</div>
+    <div class="help">Gerais: {cliente} {valor} {saldo} {juros} {total} {data_emp} {data_venc} {dias_atraso} {pix}<br>Recibo: {valor_pago} {juros_pago} {principal_pago} {juros_pendente} {novo_saldo} {data_pgto}<br>Capitalização: {juros_cap} {venc_ciclo} {novo_saldo} {novo_juros}</div>
     <div><label class="si-l">Concessão do empréstimo</label><textarea class="input" id="m1" style="min-height:90px">${DB.config.msgConcessao}</textarea></div>
     <div><label class="si-l">Lembrete de vencimento</label><textarea class="input" id="m2" style="min-height:90px">${DB.config.msgLembrete}</textarea></div>
     <div><label class="si-l">Cobrança de atraso</label><textarea class="input" id="m3" style="min-height:90px">${DB.config.msgAtraso}</textarea></div>
@@ -1113,8 +1124,8 @@ function fillMsg(tpl,l,h,noPix){const c=clientById(l.clientId)||{nome:''};const 
     .replace(/{data_emp}/g,dBR(l.dataEmprestimo)).replace(/{data_venc}/g,dBR(l.dataVencimento)).replace(/{dias_atraso}/g,at)
     .replace(/{pix}/g,DB.config.pix||'(não informada)');
   if(h){out=out.replace(/{valor_pago}/g,money(h.valor)).replace(/{juros_pago}/g,money(h.jurosPago||0))
-    .replace(/{principal_pago}/g,money(h.principalPago||0)).replace(/{novo_saldo}/g,money(h.saldoAtual)).replace(/{data_pgto}/g,dBR(h.data));}
-  else{out=out.replace(/{valor_pago}/g,'').replace(/{juros_pago}/g,'').replace(/{principal_pago}/g,'').replace(/{novo_saldo}/g,money(l.saldo)).replace(/{data_pgto}/g,dBR(todayISO()));}
+    .replace(/{principal_pago}/g,money(h.principalPago||0)).replace(/{novo_saldo}/g,money(h.saldoAtual)).replace(/{data_pgto}/g,dBR(h.data)).replace(/{juros_pendente}/g,money(h.jurosPendenteNovo||0));}
+  else{out=out.replace(/{valor_pago}/g,'').replace(/{juros_pago}/g,'').replace(/{principal_pago}/g,'').replace(/{novo_saldo}/g,money(l.saldo)).replace(/{data_pgto}/g,dBR(todayISO())).replace(/{juros_pendente}/g,money(loanPend(l)));}
   if(!noPix && DB.config.pix && !/\{pix\}/.test(tpl) && !out.includes(DB.config.pix)){out+=`\n\nChave PIX: ${DB.config.pix}`+(DB.config.pixNome?` (${DB.config.pixNome})`:'');}
   return out;}
 
@@ -1158,6 +1169,7 @@ function drawReceiptCanvas(l,h){
   const rows=[['Cliente',c.nome],['Data do pagamento',dBR(h.data)],['Valor recebido',money(h.valor)]];
   if(h.jurosPago)rows.push(['Juros pagos',money(h.jurosPago)]);
   if(h.principalPago)rows.push(['Abatido do principal',money(h.principalPago)]);
+  if(h.jurosPendenteNovo>0)rows.push(['Juros pendente',money(h.jurosPendenteNovo)]);
   rows.push(['Saldo anterior',money(h.saldoAnterior)]);
   const quit=l.status==='quitado'&&h.saldoAtual<=0;
   rows.push([quit?'Saldo devedor':'Novo saldo devedor',money(h.saldoAtual)]);
